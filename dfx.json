@@ -1,0 +1,21 @@
+{
+  "canisters": {
+    "message_board": {
+      "main": "src/index.ts",
+      "type": "custom",
+      "build": "npx azle message_board",
+      "root": "src",
+      "ts": "src/index.ts",
+      "candid": "src/index.did",
+      "wasm": ".azle/message_board/message_board.wasm.gz"
+    },
+    "token": {
+      "type": "custom",
+      "build": "npx azle token",
+      "root": "src",
+      "ts": "src/token.ts",
+      "candid": "src/token.did",
+      "wasm": ".azle/token/token.wasm.gz"
+    }
+  }
+}
