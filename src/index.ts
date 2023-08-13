@@ -1,4 +1,14 @@
-//this is an emarket cannister that has the ability to hold funds in the cannister until the buyer confirms the product
+//this is a decentalized remote purhase emarketplace smart contract that allows the buying and selling of products
+// when the buyer buys a product, he sends the money into the smart contract and the money is held there safe unil the buyer confirms the state and availablilty of the product
+//then the fund is released into the account of the seller
+//buyer also has the ablility to track bought product
+//this type of project solves the issue of trust of people trying to transact from a long distance
+//example: Mr john in U.K trying to buy food stuffs from nigeria, what assurance does he have he wont get scammed
+// what assurance does the seller has he wont get scammed if he delievrs the product first
+
+//Note: this is not yet the final state of this project as there might be some few bug and lapses
+
+//Walk with me as i give you a code walkthrough
 
 import { $query, $update, Record, StableBTreeMap, Vec, match, Result, nat64, ic, Opt, Principal, serviceQuery, serviceUpdate, CallResult, Service, int8, nat } from 'azle';
 import { v4 as uuidv4 } from 'uuid';
@@ -23,15 +33,19 @@ export class Token extends Service {
     @serviceQuery
     totalSupply: () => CallResult<nat64>;
 }
+//initalizing some few variables
 let init: boolean;
+// the address of the cannister of type Address
 let cannisterAddress: Address;
+// Icp cannister of type ledger
 let IcpCannister: Ledger;
 
-
+//create a new variable instance of the token smart contract
 const tokenCanister = new Token(
     
-    Principal.fromText(" bd3sg-teaaa-aaaaa-qaaba-cai")
+    Principal.fromText("bw4dl-smaaa-aaaaa-qaacq-cai")
 );
+//initialize the token
 export const initializeToken= async(network:int8, cannisterAddress: string):Promise<Result<string, string>>=>{
     if(!init){
         ic.trap("function already initialized");
@@ -51,8 +65,8 @@ export const initializeToken= async(network:int8, cannisterAddress: string):Prom
 
 }
 
-const BoughtProductSave = new StableBTreeMap<Principal, Product>(0,44,1024);
 
+// a data type of product 
 type Product = Record<{
     id: string;
     Title: string;
@@ -67,6 +81,7 @@ type Product = Record<{
     status: string;
     
 }>
+// a data type to allow buyers track status of thier bought item
 type TrackingStatus =Record<{
     comingFrom:string;
     Destination: string;
@@ -78,7 +93,7 @@ type TrackingStatus =Record<{
     updatedAt: Opt<nat64>; 
 
 }>
-
+// payload for type product
 type ProductPayload = Record<{
     Title: string;
     Description: string;
@@ -86,7 +101,7 @@ type ProductPayload = Record<{
     PictureURL: string;
     Location: string;
 }>
-
+//payload for type TrackingStatus
 type TrackingStatusPayload = Record<{
     comingFrom:string;
     Destination: string;
@@ -94,14 +109,19 @@ type TrackingStatusPayload = Record<{
     estimatedTimeToDelivery: string;
     
 }>
-
+// a key value pair of string to type product
 const ProductSave = new StableBTreeMap<string, Product>(0,44,1024);
+// a key value pair of type tracking status to type product
 const TrackingStatusSave = new StableBTreeMap<TrackingStatus,Product>(0,44,1024)
+// a key value pair of type principl to product
+const BoughtProductSave = new StableBTreeMap<Principal, Product>(0,44,1024);
 
+// to list all products
 $query
 export function ListAllProduct(): Result<Vec<Product>, string>{
     return Result.Ok(ProductSave.values());
 }
+// to list product by a specific unique id
 $query
 export function ListProductById(id: string): Result<Product, string> {
     return match(ProductSave.get(id),{
@@ -109,8 +129,8 @@ export function ListProductById(id: string): Result<Product, string> {
         None:()=> Result.Err<Product, string>(`product with id=${id} not found`)
             }); 
 }
+// to Add a new product 
 $update
-
 export function addProduct(payload:ProductPayload): Result<Product, string>{
     // if (validatePayload(payload).length>0){
     //     return Result.Err<Product, string>(validatePayload(payload));
@@ -126,21 +146,26 @@ export function addProduct(payload:ProductPayload): Result<Product, string>{
 
 
         }
+        //inserts the collected data to productsave
         ProductSave.insert(product.id, product);
         return Result.Ok<Product, string>(product);
     }catch(error){
         return Result.Err<Product, string>("Could not succesfully add product");
     }
 }
+//to update an added product
 $update
 export function UpdateProduct(id: string, payload: ProductPayload):Result<Product , string>{
     
    
     return match(ProductSave.get(id),{
+        //make sure product id is valid, else returns an error
         Some: (product)=>{
+            //makes sure you are the owner of the product
             if(product.Owner.toString() !==ic.caller().toString()){
                 return Result.Err<Product, string>("you are not the owner of this product");
             }
+            //saves updated product
             const updatedProduct:Product = {...product, ...payload, updatedAt:Opt.Some(ic.time())}
             ProductSave.insert(product.id, updatedProduct)
             return Result.Ok<Product, string>(updatedProduct)
@@ -149,29 +174,35 @@ export function UpdateProduct(id: string, payload: ProductPayload):Result<Produc
     });
 
 };
-
+//allows  a user to buy a product
 $update
 export const buyProduct = async(Id: string):Promise<Result<Product, string>>=>{
+    //checks if cannister is iniiaized
     if(init===false){
         ic.trap("not initialized yet")
     }
-    
+    //make sure product id is valid, else returns an error
     return match(ProductSave.get(Id),{
+        
         Some: async(product)=>{
+            //Makes sure the product is not yet bought
             if(product.status !== "Not bought"){
                 return Result.Err<Product, string>("Product not available for buying")
             }
+            // makes sure the seller is not trying  to buy his/her own product
             if(product.Owner.toString()=== ic.caller.toString()){
                 return  Result.Err<Product, string>("you are the owner of the product")
             }
+            // Makes sure there's not valid buyer for the product yet
             if(product.Buyer){
                return  Result.Err<Product, string>(`product is already purchased by ${product.Buyer} `)
             }
-            //sends the token into the contract
+            //buyer sends the token into the cannister
             let payingStatus = (await tokenCanister.transfer(ic.caller().toString(),cannisterAddress,product.Price).call()).Ok;
             if(!status){
                 ic.trap("transction failed")
             }
+            //updates info
             const updateBuyer: Product = {...product, Buyer:ic.caller(),status:"Bought",updatedAt:Opt.Some(ic.time())}
             ProductSave.insert(product.id, updateBuyer)
             return Result.Ok<Product, string>(updateBuyer)
@@ -182,26 +213,32 @@ export const buyProduct = async(Id: string):Promise<Result<Product, string>>=>{
 
     })
 }
-
+//this allows the buyer to confirm bought product so the funds would be released to the seller
 $update
 export const buyerConfirmProduct = async(Id: string):Promise<Result<Product, string>> =>{
+    //make sure product id is valid, else returns an error
     return match(ProductSave.get(Id),{
+
         Some: async(product)=>{
+            // returns an error if there's no valid buyer for product
             if (!product.Buyer){
                 return  Result.Err<Product, string>("No buyer for this product yet")
             }
+            // returns an error if another user tries to call this function excuding the buyer
             if(product.Buyer?.toString() !== ic.caller.toString()){
                 return Result.Err<Product, string>("you are not the buyer of this product")
             }
+            // returns an error if the status of the product is not bought
             if(product.status !== "Bought" ){
                 return Result.Err<Product, string>("Product is not bought")
             }
+            //After passing through the checks , funds are released
             //Releases the funds into the seller's account
             let status = (await tokenCanister.transfer(cannisterAddress,product.Owner.toString(),product.Price).call()).Ok;
             if(!status){
                 ic.trap("transaction failed")
             }
-            // changes the owner of the Product and sets the status to delivered
+            // changes the owner of the Product to the buyer and sets the status to delivered
             const updatedProduct:Product = {...product, status:"delivered", Owner:ic.caller(),updatedAt:Opt.Some(ic.time())}
             ProductSave.insert(product.id, updatedProduct)
             BoughtProductSave.insert(ic.caller(), updatedProduct)
@@ -318,3 +355,18 @@ function validatePayload(payload: ProductPayload){
         return "please input a picture url";
     }
 }
+
+
+// UUID workaround
+globalThis.crypto = {
+    //@ts-ignore
+    getRandomValues: () => {
+        let array = new Uint8Array(32);
+
+        for (let i = 0; i < array.length; i++) {
+            array[i] = Math.floor(Math.random() * 256);
+        }
+
+        return array;
+    },
+};
