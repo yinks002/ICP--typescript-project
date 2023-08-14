@@ -14,6 +14,7 @@ import { $query, $update, Record, StableBTreeMap, Vec, match, Result, nat64, ic,
 import { v4 as uuidv4 } from 'uuid';
 import {Address,Ledger} from 'azle/canisters/ledger';
 
+
 export class Token extends Service {
     @serviceUpdate
     initializeSupply: ( name: string, originalAddress: string, ticker: string,totalSupply: nat64) => CallResult<boolean>;
@@ -45,8 +46,10 @@ const tokenCanister = new Token(
     
     Principal.fromText("bw4dl-smaaa-aaaaa-qaacq-cai")
 );
-//initialize the token
-export const initializeToken= async(network:int8, cannisterAddress: string):Promise<Result<string, string>>=>{
+
+
+//initialize function
+export const initialize= async(network:int8, cannisterAddress: string):Promise<Result<string, string>>=>{
     if(!init){
         ic.trap("function already initialized");
     }
@@ -60,6 +63,8 @@ export const initializeToken= async(network:int8, cannisterAddress: string):Prom
     }else{
         network=1
     }
+    //wallet of user
+    const User: Principal = ic.caller()
     init= true;
     return Result.Ok<string, string>("the cannister has been initialized")
 
@@ -109,6 +114,8 @@ type TrackingStatusPayload = Record<{
     estimatedTimeToDelivery: string;
     
 }>
+//to keep track records of users and amount of token minted
+const tokenSave = new StableBTreeMap<Principal, BigInt>(0,22,512)
 // a key value pair of string to type product
 const ProductSave = new StableBTreeMap<string, Product>(0,44,1024);
 // a key value pair of type tracking status to type product
@@ -174,6 +181,10 @@ export function UpdateProduct(id: string, payload: ProductPayload):Result<Produc
     });
 
 };
+
+
+
+
 //allows  a user to buy a product
 $update
 export const buyProduct = async(Id: string):Promise<Result<Product, string>>=>{
@@ -249,16 +260,20 @@ export const buyerConfirmProduct = async(Id: string):Promise<Result<Product, str
 
     })
 }
+//allows buyer or seller to  cancel orders
 $update
 export  const cancelOrder = (Id: string)=>{
     return match(ProductSave.get(Id),{
         Some:async(product)=>{
+            //checks if function caller is either buyer or seller
             if(product.Buyer || product.Owner !== ic.caller()){
                 return Result.Err<Product, string>("you are not the product buyer")
             }
+            // checks if product status is bought
             if(product.status !=="Bought"){
                 return Result.Err<Product, string>("You cannot call this function at this state")
             }
+            //checks if a buyer for the produt exists
             if(!product.Buyer){
                 return Result.Err<Product, string>("No buyer")
             }
@@ -271,17 +286,20 @@ export  const cancelOrder = (Id: string)=>{
         None:()=> Result.Err<Product, string>(`Product with id=${Id} not found`)
     })
 }
-
+//allows seller to delete a partiular product
 $update
 export const deleteProduct = (Id:string):Result<Product , string>=>{
     return match(ProductSave.get(Id),{
         Some: (product)=>  {
+            //makes sure product is not bought
             if(product.status !== "Not bought"){
                 return Result.Err<Product, string>("you cannot delete the product at this stage")
             }
+            //makes sure only seller can call this function
             if (ic.caller() !== product.Owner){
                 return Result.Err<Product, string>("you are not the owner of this product")
             }
+            // deletes product
             ProductSave.remove(Id);
             return Result.Ok<Product, string>(product)
         },
@@ -291,26 +309,45 @@ export const deleteProduct = (Id:string):Result<Product , string>=>{
         None:()=> Result.Err<Product, string>(`product with id=${Id} not found`)
     })
 }
+//allows user to mint tokens into wallet
+export const getTokens = async():Promise<Result<boolean, string>>=>{
+    const user: Principal = ic.caller()
+    return await tokenCanister.transfer(cannisterAddress, ic.caller().toString(), 1500n).call();
+    tokenSave.insert(user, 1500n);
+}
 
+//allows to get your local account balance
+export const getBalance = async():Promise<Result<nat64, string>>=>{
+    return await tokenCanister.balance(ic.caller.toString()).call()
+}
+//allows to get list of acconts that have minted and the amount minted
+export function getMintedAccounts():Result<Vec<BigInt>, Principal>{
+    return Result.Ok(tokenSave.values())
+}
 //Allows buyer to track bought on shipment product
 
 export const trackBoughtProduct= (Id: string)=>{
 
 }
-
+//
+// allows seller to set status of on delivery product
 export function setTrackingStatus(Id: string,payload:TrackingStatusPayload){
     return match(ProductSave.get(Id),{
+        //if product id exists
         Some:(product)=>{
+            //makes sure only seller can call this function
             if(product.Owner !== ic.caller()){
                 return Result.Err<Product, string>("you are not the product buyer")
             }
+            //enusres product is bought
             if(product.status !=="Bought"){
                 return Result.Err<Product, string>("You cannot call this function at this state")
             }
+            //ensures there's a valid buyer
             if(!product.Buyer){
                 return Result.Err<Product, string>("No buyer")
             }
-
+            //update products status
             const updatedStat: TrackingStatus = {...payload, buyer: product.Buyer, seller:ic.caller(), createdAt:ic.time(),
                 updatedAt: Opt.None,}
             TrackingStatusSave.insert(updatedStat,product)
@@ -318,10 +355,11 @@ export function setTrackingStatus(Id: string,payload:TrackingStatusPayload){
 
           
         },
+        //product id does not exist
         None:()=> Result.Err<Product, string>(`Product with id=${Id} not found`)
     })
 }
-
+//alllows to check bought product
 export const getListOfBoughtProducts = ():Result<Vec<Product>, string>=>{
     return Result.Ok(BoughtProductSave.values());
 }
