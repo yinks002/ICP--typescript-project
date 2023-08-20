@@ -43,13 +43,14 @@ let IcpCannister: Ledger;
 
 //create a new variable instance of the token smart contract
 const tokenCanister = new Token(
-    
-    Principal.fromText("bw4dl-smaaa-aaaaa-qaacq-cai")
+    //input the principal of token cannister after creating it
+    Principal.fromText("bd3sg-teaaa-aaaaa-qaaba-cai")
 );
 
 
 //initialize function
-export const initialize= async(network:int8, cannisterAddress: string):Promise<Result<string, string>>=>{
+$update
+export async function initialize(network:int8, cannisterAddress: string):Promise<Result<string, string>>{
     if(!init){
         ic.trap("function already initialized");
     }
@@ -114,14 +115,13 @@ type TrackingStatusPayload = Record<{
     estimatedTimeToDelivery: string;
     
 }>
-//to keep track records of users and amount of token minted
-const tokenSave = new StableBTreeMap<Principal, BigInt>(0,22,512)
+
 // a key value pair of string to type product
-const ProductSave = new StableBTreeMap<string, Product>(0,44,1024);
+const ProductSave = new StableBTreeMap<string, Product>(3,22,250);
 // a key value pair of type tracking status to type product
-const TrackingStatusSave = new StableBTreeMap<TrackingStatus,Product>(0,44,1024)
+// const TrackingStatusSave = new StableBTreeMap<TrackingStatus,Product>(4,44,250)
 // a key value pair of type principl to product
-const BoughtProductSave = new StableBTreeMap<Principal, Product>(0,44,1024);
+const BoughtProductSave = new StableBTreeMap<Principal, Product>(1,100,250);
 
 // to list all products
 $query
@@ -139,9 +139,12 @@ export function ListProductById(id: string): Result<Product, string> {
 // to Add a new product 
 $update
 export function addProduct(payload:ProductPayload): Result<Product, string>{
-    // if (validatePayload(payload).length>0){
-    //     return Result.Err<Product, string>(validatePayload(payload));
-    // }
+   
+   const errorPaylaod = validatePayload(payload);
+   if (errorPaylaod.length> 0){
+    return Result.Err<Product, string>(errorPaylaod)
+   }
+
     try{
         const product: Product = {
             Owner: ic.caller(),
@@ -164,7 +167,10 @@ export function addProduct(payload:ProductPayload): Result<Product, string>{
 $update
 export function UpdateProduct(id: string, payload: ProductPayload):Result<Product , string>{
     
-   
+    const errorPaylaod = validatePayload(payload);
+    if (errorPaylaod.length> 0){
+    return Result.Err<Product, string>(errorPaylaod)
+   }
     return match(ProductSave.get(id),{
         //make sure product id is valid, else returns an error
         Some: (product)=>{
@@ -187,7 +193,7 @@ export function UpdateProduct(id: string, payload: ProductPayload):Result<Produc
 
 //allows  a user to buy a product
 $update
-export const buyProduct = async(Id: string):Promise<Result<Product, string>>=>{
+export async function buyProduct(Id: string):Promise<Result<Product, string>>{
     //checks if cannister is iniiaized
     if(init===false){
         ic.trap("not initialized yet")
@@ -226,7 +232,7 @@ export const buyProduct = async(Id: string):Promise<Result<Product, string>>=>{
 }
 //this allows the buyer to confirm bought product so the funds would be released to the seller
 $update
-export const buyerConfirmProduct = async(Id: string):Promise<Result<Product, string>> =>{
+export async function buyerConfirmProduct(Id: string):Promise<Result<Product, string>>{
     //make sure product id is valid, else returns an error
     return match(ProductSave.get(Id),{
 
@@ -261,34 +267,35 @@ export const buyerConfirmProduct = async(Id: string):Promise<Result<Product, str
     })
 }
 //allows buyer or seller to  cancel orders
-$update
-export  const cancelOrder = (Id: string)=>{
-    return match(ProductSave.get(Id),{
-        Some:async(product)=>{
-            //checks if function caller is either buyer or seller
-            if(product.Buyer || product.Owner !== ic.caller()){
-                return Result.Err<Product, string>("you are not the product buyer")
-            }
-            // checks if product status is bought
-            if(product.status !=="Bought"){
-                return Result.Err<Product, string>("You cannot call this function at this state")
-            }
-            //checks if a buyer for the produt exists
-            if(!product.Buyer){
-                return Result.Err<Product, string>("No buyer")
-            }
-            //refunds the buyer's money
-            let buyer = product.Buyer;
-            let status= (await tokenCanister.transfer(cannisterAddress, buyer , product.Price))
-            const updatedProduct: Product= {...product, status:"Not bought",Buyer:ic.caller(),updatedAt:Opt.Some(ic.time())}
-            ProductSave.insert(product.id, updatedProduct)
-        },
-        None:()=> Result.Err<Product, string>(`Product with id=${Id} not found`)
-    })
-}
+// $update
+// export  async function cancelOrder(Id: string):Promise<Result<Product, string>>{
+//     return match(ProductSave.get(Id),{
+//         Some:async(product)=>{
+//             //checks if function caller is either buyer or seller
+//             if(product.Buyer || product.Owner !== ic.caller()){
+//                 return Result.Err<Product, string>("you are not the product buyer")
+//             }
+//             // checks if product status is bought
+//             if(product.status !=="Bought"){
+//                 return Result.Err<Product, string>("You cannot call this function at this state")
+//             }
+//             //checks if a buyer for the produt exists
+//             if(!product.Buyer){
+//                 return Result.Err<Product, string>("No buyer")
+//             }
+//             //refunds the buyer's money
+//             let buyer = product.Buyer;
+//             let status= (await tokenCanister.transfer(cannisterAddress, buyer , product.Price))
+//             const updatedProduct: Product= {...product, status:"Not bought",Buyer:ic.caller(),updatedAt:Opt.Some(ic.time())}
+//             ProductSave.insert(product.id, updatedProduct)
+//             return Result.Ok<Product, string>(product)
+//         },
+//         None:()=> Result.Err<Product, string>(`Product with id=${Id} not found`)
+//     })
+// }
 //allows seller to delete a partiular product
 $update
-export const deleteProduct = (Id:string):Result<Product , string>=>{
+export function deleteProduct(Id:string):Result<Product , string>{
     return match(ProductSave.get(Id),{
         Some: (product)=>  {
             //makes sure product is not bought
@@ -310,60 +317,60 @@ export const deleteProduct = (Id:string):Result<Product , string>=>{
     })
 }
 //allows user to mint tokens into wallet
-export const getTokens = async():Promise<Result<boolean, string>>=>{
+
+export async function getTokens ():Promise<Result<boolean, string>>{
     const user: Principal = ic.caller()
     return await tokenCanister.transfer(cannisterAddress, ic.caller().toString(), 1500n).call();
-    tokenSave.insert(user, 1500n);
+   
 }
-
+$query
 //allows to get your local account balance
-export const getBalance = async():Promise<Result<nat64, string>>=>{
+export async function getBalance():Promise<Result<nat64, string>>{
     return await tokenCanister.balance(ic.caller.toString()).call()
 }
-//allows to get list of acconts that have minted and the amount minted
-export function getMintedAccounts():Result<Vec<BigInt>, Principal>{
-    return Result.Ok(tokenSave.values())
-}
-//Allows buyer to track bought on shipment product
 
-export const trackBoughtProduct= (Id: string)=>{
+//Allows buyer to track bought on shipment product
+$query
+export function trackBoughtProduct(Id: string):void{
 
 }
 //
 // allows seller to set status of on delivery product
-export function setTrackingStatus(Id: string,payload:TrackingStatusPayload){
-    return match(ProductSave.get(Id),{
-        //if product id exists
-        Some:(product)=>{
-            //makes sure only seller can call this function
-            if(product.Owner !== ic.caller()){
-                return Result.Err<Product, string>("you are not the product buyer")
-            }
-            //enusres product is bought
-            if(product.status !=="Bought"){
-                return Result.Err<Product, string>("You cannot call this function at this state")
-            }
-            //ensures there's a valid buyer
-            if(!product.Buyer){
-                return Result.Err<Product, string>("No buyer")
-            }
-            //update products status
-            const updatedStat: TrackingStatus = {...payload, buyer: product.Buyer, seller:ic.caller(), createdAt:ic.time(),
-                updatedAt: Opt.None,}
-            TrackingStatusSave.insert(updatedStat,product)
+// $update
+// export function setTrackingStatus(Id: string,payload:TrackingStatusPayload){
+//     return match(ProductSave.get(Id),{
+//         //if product id exists
+//         Some:(product)=>{
+//             //makes sure only seller can call this function
+//             if(product.Owner !== ic.caller()){
+//                 return Result.Err<Product, string>("you are not the product buyer")
+//             }
+//             //enusres product is bought
+//             if(product.status !=="Bought"){
+//                 return Result.Err<Product, string>("You cannot call this function at this state")
+//             }
+//             //ensures there's a valid buyer
+//             if(!product.Buyer){
+//                 return Result.Err<Product, string>("No buyer")
+//             }
+//             //update products status
+//             const updatedStat: TrackingStatus = {...payload, buyer: product.Buyer, seller:ic.caller(), createdAt:ic.time(),
+//                 updatedAt: Opt.None,}
+//             TrackingStatusSave.insert(updatedStat,product)
 
 
           
-        },
-        //product id does not exist
-        None:()=> Result.Err<Product, string>(`Product with id=${Id} not found`)
-    })
-}
+//         },
+//         //product id does not exist
+//         None:()=> Result.Err<Product, string>(`Product with id=${Id} not found`)
+//     })
+// }
 //alllows to check bought product
-export const getListOfBoughtProducts = ():Result<Vec<Product>, string>=>{
+$query 
+export function getListOfBoughtProducts():Result<Vec<Product>, string>{
     return Result.Ok(BoughtProductSave.values());
 }
-$query
+$query 
 export function searchProductByName(query:string):Result<Vec<Product>, string>{
     const productLen = ProductSave.len();
     //initializing an empty array to hold the value of product with  a particular string
@@ -379,7 +386,7 @@ export function searchProductByName(query:string):Result<Vec<Product>, string>{
     
 }
 
-function validatePayload(payload: ProductPayload){
+function validatePayload(payload: ProductPayload):string{
     if(payload.Description.length===0){
         return "please input a description";
     }
@@ -392,6 +399,7 @@ function validatePayload(payload: ProductPayload){
     if(payload.PictureURL.length===0){
         return "please input a picture url";
     }
+    return "";
 }
 
 
